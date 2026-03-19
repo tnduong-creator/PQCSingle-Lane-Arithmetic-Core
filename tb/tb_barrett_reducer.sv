@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module tb_barrett_reducer_sync;
+module tb_barrett_reducer;
 
   localparam int unsigned Q          = 3329;
   localparam int unsigned IN_WIDTH   = 24;
@@ -16,7 +16,7 @@ module tb_barrett_reducer_sync;
   logic [OUT_WIDTH-1:0]   out_val;
 
   // DUT
-  barrett_reducer_sync dut (
+ barrett_reducer dut (
     .clk      (clk),
     .rst      (rst),
     .valid_in (valid_in),
