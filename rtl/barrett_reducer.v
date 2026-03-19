@@ -1,96 +1,118 @@
-module barrett_reducer #(
-    parameter integer Q         = 3329,
-    parameter integer IN_WIDTH  = 24,
-    parameter integer OUT_WIDTH = 12,
-    parameter integer K         = 24,
-    parameter integer MU        = 5039   // floor(2^24 / 3329)
-)(
-    input  wire                     clk,
-    input  wire                     rst,
-    input  wire                     valid_in,
-    input  wire [IN_WIDTH-1:0]      in_val,
-    output reg                      valid_out,
-    output reg  [OUT_WIDTH-1:0]     out_val
+`timescale 1ns / 1ps
+
+module barrett_reducer (
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        valid_in,
+
+    input  wire [23:0] in,      // input value
+    output reg         valid_out,
+    output reg  [11:0] out      // reduced output = in mod 3329
 );
 
-    // -------------------------
-    // Stage 1: register input
-    // -------------------------
-    reg                 v1;
-    reg [IN_WIDTH-1:0]  x1;
+    // q = 3329
+    localparam [11:0] Q  = 12'd3329;
+
+    // Barrett parameters:
+    // k = 24
+    // mu = floor(2^24 / 3329) = 5039
+    localparam [4:0]  K  = 5'd24;
+    localparam [15:0] MU = 16'd5039;
 
     // -------------------------
-    // Stage 2: x * MU
+    // Pipeline stage 1: register input
     // -------------------------
-    reg                 v2;
-    reg [IN_WIDTH-1:0]  x2;
-    reg [IN_WIDTH+15:0] prod_mu2;
+    reg        v1;
+    reg [23:0] in_1;
 
     // -------------------------
-    // Stage 3: q_hat = (x * MU) >> K
+    // Pipeline stage 2: t1 = in * MU
     // -------------------------
-    reg                 v3;
-    reg [IN_WIDTH-1:0]  x3;
-    reg [IN_WIDTH-1:0]  qhat3;
+    reg        v2;
+    reg [23:0] in_2;
+    reg [39:0] t1_2;
 
     // -------------------------
-    // Stage 4: r = x - q_hat * Q
+    // Pipeline stage 3: t2 = t1 >> K
     // -------------------------
-    reg                 v4;
-    reg signed [IN_WIDTH+15:0] r4;
+    reg        v3;
+    reg [23:0] in_3;
+    reg [23:0] t2_3;
 
     // -------------------------
-    // Stage 5: correction into [0, Q-1]
+    // Pipeline stage 4: t3 = t2 * Q, r = in - t3
     // -------------------------
-    reg                 v5;
-    reg [OUT_WIDTH-1:0] r5;
+    reg        v4;
+    reg signed [40:0] r_4;
 
-    reg signed [IN_WIDTH+15:0] temp_r;
+    // -------------------------
+    // Pipeline stage 5: correction
+    // -------------------------
+    reg        v5;
+    reg [11:0] out_5;
+
+    reg signed [40:0] temp_r;
 
     always @(posedge clk) begin
         if (rst) begin
-            v1       <= 1'b0;
-            v2       <= 1'b0;
-            v3       <= 1'b0;
-            v4       <= 1'b0;
-            v5       <= 1'b0;
+            v1        <= 1'b0;
+            v2        <= 1'b0;
+            v3        <= 1'b0;
+            v4        <= 1'b0;
+            v5        <= 1'b0;
             valid_out <= 1'b0;
-            out_val   <= {OUT_WIDTH{1'b0}};
-            x1        <= {IN_WIDTH{1'b0}};
-            x2        <= {IN_WIDTH{1'b0}};
-            x3        <= {IN_WIDTH{1'b0}};
-            prod_mu2  <= {(IN_WIDTH+16){1'b0}};
-            qhat3     <= {IN_WIDTH{1'b0}};
-            r4        <= {(IN_WIDTH+16){1'b0}};
-            r5        <= {OUT_WIDTH{1'b0}};
+            out       <= 12'd0;
+
+            in_1      <= 24'd0;
+            in_2      <= 24'd0;
+            in_3      <= 24'd0;
+            t1_2      <= 40'd0;
+            t2_3      <= 24'd0;
+            r_4       <= 41'd0;
+            out_5     <= 12'd0;
         end else begin
             // Stage 1
-            v1 <= valid_in;
-            x1 <= in_val;
+            v1   <= valid_in;
+            in_1 <= in;
 
             // Stage 2
-            v2      <= v1;
-            x2      <= x1;
-            prod_mu2 <= x1 * MU;
+            v2   <= v1;
+            in_2 <= in_1;
+
+            // t1 = in * 5039
+            t1_2 <= ({4'd0,  in_1, 12'd0}) +   // in << 12
+                    ({7'd0,  in_1,  9'd0}) +   // in << 9
+                    ({8'd0,  in_1,  8'd0}) +   // in << 8
+                    ({9'd0,  in_1,  7'd0}) +   // in << 7
+                    ({11'd0, in_1,  5'd0}) +   // in << 5
+                    ({13'd0, in_1,  3'd0}) +   // in << 3
+                    ({14'd0, in_1,  2'd0}) +   // in << 2
+                    ({15'd0, in_1,  1'd0}) +   // in << 1
+                    ({16'd0, in_1});           // in
 
             // Stage 3
-            v3    <= v2;
-            x3    <= x2;
-            qhat3 <= prod_mu2 >> K;
+            v3   <= v2;
+            in_3 <= in_2;
+
+            // t2 = t1 >> 24
+            t2_3 <= t1_2 >> K;
 
             // Stage 4
             v4 <= v3;
-            r4 <= $signed({1'b0, x3}) - $signed(qhat3 * Q);
+
+            // t3 = t2 * Q = t2 * 3329 = (t2<<11) + (t2<<10) + (t2<<8) + t2
+            r_4 <= $signed({1'b0, in_3}) -
+                   $signed((({t2_3, 11'd0}) + ({t2_3, 10'd0}) + ({t2_3, 8'd0}) + t2_3));
 
             // Stage 5
             v5 <= v4;
-            temp_r = r4;
+            temp_r = r_4;
 
-            // Bring negative values upward if needed
+            // bring up if negative
             if (temp_r < 0)
                 temp_r = temp_r + Q;
 
-            // Subtract Q until in range
+            // subtract Q until result is in [0, Q-1]
             if (temp_r >= Q)
                 temp_r = temp_r - Q;
             if (temp_r >= Q)
@@ -98,11 +120,11 @@ module barrett_reducer #(
             if (temp_r >= Q)
                 temp_r = temp_r - Q;
 
-            r5 <= temp_r[OUT_WIDTH-1:0];
+            out_5 <= temp_r[11:0];
 
-            // Output register
+            // output stage
             valid_out <= v5;
-            out_val   <= r5;
+            out       <= out_5;
         end
     end
 
