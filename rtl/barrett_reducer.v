@@ -1,4 +1,4 @@
-module barrett_reducer_sync #(
+module barrett_reducer #(
     parameter integer Q         = 3329,
     parameter integer IN_WIDTH  = 24,
     parameter integer OUT_WIDTH = 12,
